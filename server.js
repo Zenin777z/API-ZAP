@@ -304,7 +304,8 @@ app.get('/api/avatar', async (req, res) => {
                 jid,
                 exists: true,
                 hasProfilePic: true,
-                profilePicUrl
+                profilePicUrl,
+                directImageUrl: `/api/avatar/view?number=${cleanNumber}`
             };
             setCache(cleanNumber, responseData);
             return { status: 200, data: responseData };
@@ -321,6 +322,44 @@ app.get('/api/avatar', async (req, res) => {
             error: 'Falha ao processar a requisição.',
             details: error.message 
         });
+    }
+});
+
+// Endpoint para VISUALIZAR a imagem diretamente no navegador (sem fazer download de file.enc)
+app.get('/api/avatar/view', async (req, res) => {
+    let { number } = req.query;
+    if (!number) return res.status(400).send('Número não informado');
+
+    const cleanNumber = number.toString().replace(/\D/g, '');
+    let profilePicUrl = null;
+
+    const cached = getCached(cleanNumber);
+    if (cached && cached.profilePicUrl) {
+        profilePicUrl = cached.profilePicUrl;
+    } else if (sock && isConnected) {
+        try {
+            const jid = `${cleanNumber}@s.whatsapp.net`;
+            profilePicUrl = await sock.profilePictureUrl(jid, 'image').catch(() => null);
+        } catch {}
+    }
+
+    if (!profilePicUrl) {
+        return res.status(404).send('Foto de perfil não encontrada');
+    }
+
+    try {
+        const imageRes = await fetch(profilePicUrl);
+        if (!imageRes.ok) return res.status(imageRes.status).send('Erro ao carregar imagem');
+
+        const arrayBuffer = await imageRes.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.setHeader('Content-Disposition', 'inline; filename="avatar.jpg"');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.send(buffer);
+    } catch (err) {
+        res.status(500).send('Erro ao renderizar imagem: ' + err.message);
     }
 });
 

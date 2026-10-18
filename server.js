@@ -330,4 +330,17 @@ app.listen(PORT, async () => {
     console.log(`🌐 Painel do QR Code: http://localhost:${PORT}/qr`);
     console.log(`🔍 Endpoint de consulta: http://localhost:${PORT}/api/avatar?number=NUMERO\n`);
     await connectToWhatsApp();
+
+    // Auto Keep-Alive: faz ping automático na própria URL pública a cada 5 minutos
+    // Isso impede que o Render entre em modo sleep por inatividade
+    const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL || 'https://api-zap-ia1g.onrender.com';
+    setInterval(async () => {
+        try {
+            const res = await fetch(`${RENDER_EXTERNAL_URL}/status`);
+            const data = await res.json();
+            console.log(`[KEEP-ALIVE] Ping realizado com sucesso em ${new Date().toLocaleTimeString()} - Status: ${data.online ? 'Online' : 'Aguardando QR'}`);
+        } catch (err) {
+            console.warn('[KEEP-ALIVE] Falha ao fazer auto-ping:', err.message);
+        }
+    }, 5 * 60 * 1000); // Executa a cada 5 minutos
 });

@@ -50,9 +50,10 @@ function setCache(number, data) {
     });
 }
 
-// 2. Fila sequencial com Delay Humano (Anti-Spam / Anti-Ban)
-// Garante que consultas simultâneas esperem um intervalo seguro de 1.5 a 3.5 segundos
+// 2. Fila sequencial com Delay Humano com Jitter (Anti-Spam / Anti-Ban Avançado)
 let requestQueue = Promise.resolve();
+let consecutiveErrors = 0;
+let circuitBreakerPauseUntil = 0;
 
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -60,13 +61,32 @@ function delay(ms) {
 
 function enqueueWhatsAppTask(taskFn) {
     const currentTask = requestQueue.then(async () => {
-        // Delay aleatório humano entre 1.5 e 3.5 segundos para não parecer robô
-        const randomDelay = Math.floor(Math.random() * (3500 - 1500 + 1)) + 1500;
+        // Se a Meta começou a rejeitar requisições recentemente, pausa automática por 5 minutos
+        if (Date.now() < circuitBreakerPauseUntil) {
+            const waitSeconds = Math.ceil((circuitBreakerPauseUntil - Date.now()) / 1000);
+            throw new Error(`Proteção anti-ban ativa: Muitas requisições recentes. Pausa temporária por mais ${waitSeconds}s.`);
+        }
+
+        // Delay aleatório com variação humana (1.8s a 4.2s)
+        const randomDelay = Math.floor(Math.random() * (4200 - 1800 + 1)) + 1800;
         await delay(randomDelay);
-        return taskFn();
+
+        try {
+            const result = await taskFn();
+            consecutiveErrors = 0; // Sucesso, zera contador de erros
+            return result;
+        } catch (err) {
+            consecutiveErrors++;
+            // Se der 5 erros seguidos da Meta (ex: rate limit ou bloqueio), pausa o robô por 5 minutos
+            if (consecutiveErrors >= 5) {
+                circuitBreakerPauseUntil = Date.now() + (5 * 60 * 1000);
+                console.warn('⚠️ [ANTI-BAN] 5 falhas seguidas detectadas. Circuito pausado por 5 minutos para proteger o chip.');
+            }
+            throw err;
+        }
     });
 
-    // Mantém a fila fluindo mesmo se alguma requisição der erro
+    // Mantém a fila fluindo mesmo com erros
     requestQueue = currentTask.catch(() => {});
     return currentTask;
 }
@@ -88,9 +108,16 @@ async function connectToWhatsApp() {
         sock = makeWASocket({
             version,
             auth: state,
-            logger: pino({ level: 'info' }), // Ativa logs no Render para sabermos o estado exato
+            logger: pino({ level: 'info' }),
             printQRInTerminal: true,
-            browser: ['Ubuntu', 'Chrome', '20.0.04']
+            // Simulação autêntica de navegador Desktop
+            browser: ['Mac OS', 'Chrome', '125.0.0.0'],
+            // Mantém ping ativo para a conexão não cair por inatividade
+            keepAliveIntervalMs: 25000,
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 60000,
+            markOnlineOnConnect: false, // Ficar "invisível" para não chamar atenção nos servidores
+            syncFullHistory: false // Não baixa conversas desnecessárias economizando banda e telemetria
         });
 
         sock.ev.on('creds.update', saveCreds);

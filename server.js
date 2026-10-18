@@ -344,7 +344,18 @@ app.get('/api/avatar/view', async (req, res) => {
     }
 
     if (!profilePicUrl) {
-        return res.status(404).send('Foto de perfil não encontrada');
+        // Retorna um avatar padrão elegante em SVG caso o usuário não tenha foto
+        const defaultAvatarSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+            <rect width="200" height="200" fill="#E1E7EB"/>
+            <circle cx="100" cy="75" r="40" fill="#A0AAB0"/>
+            <path d="M30 180 C30 135 65 130 100 130 C135 130 170 135 170 180 Z" fill="#A0AAB0"/>
+        </svg>
+        `.trim();
+
+        res.setHeader('Content-Type', 'image/svg+xml');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(defaultAvatarSvg);
     }
 
     try {

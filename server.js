@@ -76,14 +76,21 @@ function enqueueWhatsAppTask(taskFn) {
 async function connectToWhatsApp() {
     try {
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-        const { version } = await fetchLatestBaileysVersion();
+        
+        let version;
+        try {
+            const versionData = await fetchLatestBaileysVersion();
+            version = versionData.version;
+        } catch (vErr) {
+            console.warn('Não foi possível buscar a versão mais recente do Baileys, usando padrão:', vErr.message);
+        }
 
         sock = makeWASocket({
             version,
             auth: state,
-            logger: pino({ level: 'silent' }),
-            printQRInTerminal: false,
-            browser: ['API Zap', 'Chrome', '1.0.0']
+            logger: pino({ level: 'info' }), // Ativa logs no Render para sabermos o estado exato
+            printQRInTerminal: true,
+            browser: ['Ubuntu', 'Chrome', '20.0.04']
         });
 
         sock.ev.on('creds.update', saveCreds);
@@ -95,10 +102,9 @@ async function connectToWhatsApp() {
                 currentQR = qr;
                 isConnected = false;
                 console.log('\n=============================================');
-                console.log('📌 QR CODE GERADO! Escaneie pelo WhatsApp:');
+                console.log('📌 QR CODE GERADO NO RENDER! Escaneie pelo WhatsApp:');
                 console.log('=============================================\n');
                 qrcodeTerminal.generate(qr, { small: true });
-                console.log(`\nOu visualize no navegador: http://localhost:${PORT}/qr\n`);
             }
 
             if (connection === 'close') {
@@ -113,14 +119,16 @@ async function connectToWhatsApp() {
                 if (shouldReconnect) {
                     setTimeout(connectToWhatsApp, 3000);
                 } else {
-                    console.log('❌ Sessão finalizada/desconectada pelo dispositivo. Reinicie para gerar um novo QR.');
+                    console.log('❌ Sessão finalizada. Limpando credenciais para novo QR...');
+                    currentQR = null;
+                    setTimeout(connectToWhatsApp, 3000);
                 }
             } else if (connection === 'open') {
                 isConnected = true;
                 currentQR = null;
                 userProfile = sock.user;
                 console.log('\n=============================================');
-                console.log(`✅ WhatsApp CONECTADO com sucesso!`);
+                console.log(`✅ WhatsApp CONECTADO com sucesso no Render!`);
                 console.log(`📱 Número conectado: ${sock.user?.id?.split(':')[0] || 'Desconhecido'}`);
                 console.log('=============================================\n');
             }

@@ -109,18 +109,27 @@ async function connectToWhatsApp() {
 
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                const isLoggedOut = statusCode === DisconnectReason.loggedOut;
 
                 isConnected = false;
                 userProfile = null;
+                currentQR = null;
 
-                console.log(`⚠️ Conexão fechada (Código: ${statusCode}). Reconectando: ${shouldReconnect}`);
+                console.log(`⚠️ Conexão fechada (Código: ${statusCode}). Desconectado/LoggedOut: ${isLoggedOut}`);
 
-                if (shouldReconnect) {
-                    setTimeout(connectToWhatsApp, 3000);
+                if (isLoggedOut) {
+                    console.log('🧹 Limpando arquivos de sessão antigos para forçar novo QR Code...');
+                    try {
+                        import('fs').then(fs => {
+                            fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+                            console.log('✅ Pasta auth_info_baileys limpa com sucesso!');
+                        });
+                    } catch (e) {
+                        console.error('Erro ao limpar pasta de auth:', e);
+                    }
+                    setTimeout(connectToWhatsApp, 2000);
                 } else {
-                    console.log('❌ Sessão finalizada. Limpando credenciais para novo QR...');
-                    currentQR = null;
+                    console.log('Tentando reconectar em 3 segundos...');
                     setTimeout(connectToWhatsApp, 3000);
                 }
             } else if (connection === 'open') {

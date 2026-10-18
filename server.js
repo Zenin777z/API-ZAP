@@ -22,6 +22,31 @@ let currentQR = null;
 let isConnected = false;
 let userProfile = null;
 
+// ================= SISTEMA DE LOGS ================= //
+// Armazena as últimas 50 consultas em memória para exibição em tempo real
+const queryLogs = [];
+const MAX_LOGS = 50;
+
+function addLog(number, status, details = '') {
+    const timestamp = new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    const logEntry = {
+        time: timestamp,
+        number,
+        status, // 'COM FOTO', 'SEM FOTO', 'NÃO CADASTRADO', 'ERRO'
+        details
+    };
+    
+    // Adiciona no início da lista
+    queryLogs.unshift(logEntry);
+    if (queryLogs.length > MAX_LOGS) {
+        queryLogs.pop();
+    }
+
+    // Imprime também no terminal/Render
+    console.log(`[LOG ${timestamp}] Número: ${number} | Status: ${status} ${details ? `(${details})` : ''}`);
+}
+// ==================================================== //
+
 // ================= ANTI-BAN / PROTEÇÃO ================= //
 // 1. Cache em Memória RAM (sem banco de dados)
 // Guarda o resultado por 24 horas. Não consulta o WhatsApp se já tiver no cache.
@@ -182,8 +207,90 @@ app.get('/status', (req, res) => {
     res.json({
         online: isConnected,
         message: isConnected ? 'WhatsApp conectado e pronto para consultas.' : 'Aguardando autenticação por QR Code.',
-        user: userProfile ? { id: userProfile.id.split(':')[0], name: userProfile.name } : null
+        user: userProfile ? { id: userProfile.id.split(':')[0], name: userProfile.name } : null,
+        totalLogs: queryLogs.length
     });
+});
+
+// Painel Visual de Logs em Tempo Real
+app.get('/logs', (req, res) => {
+    const logRows = queryLogs.length === 0 
+        ? `<tr><td colspan="4" style="text-align:center; padding: 20px; color: #777;">Nenhuma consulta realizada ainda.</td></tr>`
+        : queryLogs.map(log => {
+            let badgeBg = '#2e7d32'; // verde
+            if (log.status === 'SEM FOTO') badgeBg = '#f57c00'; // laranja
+            if (log.status === 'NÃO CADASTRADO') badgeBg = '#c2185b'; // rosa escuro
+            if (log.status === 'ERRO') badgeBg = '#d32f2f'; // vermelho
+
+            return `
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 10px; font-family: monospace; color: #555;">${log.time}</td>
+                    <td style="padding: 10px; font-weight: bold; font-family: monospace;">${log.number}</td>
+                    <td style="padding: 10px;">
+                        <span style="background: ${badgeBg}; color: white; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">
+                            ${log.status}
+                        </span>
+                    </td>
+                    <td style="padding: 10px; color: #666; font-size: 13px;">${log.details || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+
+    res.send(`
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>API Zap - Logs em Tempo Real</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f8; margin: 0; padding: 25px; }
+                .container { max-width: 850px; margin: 0 auto; background: white; border-radius: 8px; padding: 25px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+                .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eef2f5; padding-bottom: 15px; margin-bottom: 20px; }
+                h1 { margin: 0; font-size: 22px; color: #111; }
+                .status-badge { padding: 5px 12px; border-radius: 20px; font-size: 13px; font-weight: bold; }
+                .online { background: #e8f5e9; color: #2e7d32; }
+                .offline { background: #ffebee; color: #c62828; }
+                table { width: 100%; border-collapse: collapse; text-align: left; }
+                th { background: #fafbfc; padding: 12px 10px; border-bottom: 2px solid #eaedf0; font-size: 13px; color: #444; }
+                .refresh-note { font-size: 12px; color: #888; text-align: right; margin-top: 15px; }
+            </style>
+            <script>setTimeout(() => location.reload(), 4000);</script>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <div>
+                        <h1>📊 Logs de Consultas</h1>
+                        <p style="margin: 4px 0 0 0; color: #666; font-size: 13px;">Últimas 50 consultas da API (Atualiza a cada 4s)</p>
+                    </div>
+                    <span class="status-badge ${isConnected ? 'online' : 'offline'}">
+                        ${isConnected ? '● WhatsApp Conectado' : '○ Desconectado'}
+                    </span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th width="15%">Hora</th>
+                            <th width="30%">Número</th>
+                            <th width="25%">Resultado</th>
+                            <th width="30%">Origem / Detalhes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${logRows}
+                    </tbody>
+                </table>
+                <div class="refresh-note">Página atualizada automaticamente em tempo real • <a href="/status" style="color: #075e54;">JSON Status</a></div>
+            </div>
+        </body>
+        </html>
+    `);
+});
+
+// Rota para obter logs em formato JSON (caso queira consumir por API)
+app.get('/api/logs', (req, res) => {
+    res.json(queryLogs);
 });
 
 // Rota visual para escanear o QR Code no navegador
@@ -244,6 +351,7 @@ app.get('/api/avatar', async (req, res) => {
     // 1. CHECA NO CACHE EM MEMÓRIA (Sem banco de dados e sem chamar o WhatsApp)
     const cached = getCached(cleanNumber);
     if (cached) {
+        addLog(cleanNumber, cached.hasProfilePic ? 'COM FOTO' : (cached.exists ? 'SEM FOTO' : 'NÃO CADASTRADO'), 'Cache');
         return res.json({
             ...cached,
             fromCache: true
@@ -251,6 +359,7 @@ app.get('/api/avatar', async (req, res) => {
     }
 
     if (!isConnected || !sock) {
+        addLog(cleanNumber, 'ERRO', 'WhatsApp desconectado');
         return res.status(503).json({ 
             error: 'WhatsApp desconectado. Escaneie o QR Code em /qr para iniciar.' 
         });
@@ -269,6 +378,7 @@ app.get('/api/avatar', async (req, res) => {
                     error: 'Este número não está cadastrado no WhatsApp.'
                 };
                 setCache(cleanNumber, responseData);
+                addLog(cleanNumber, 'NÃO CADASTRADO', 'WhatsApp');
                 return { status: 404, data: responseData };
             }
 
@@ -296,6 +406,7 @@ app.get('/api/avatar', async (req, res) => {
                     message: 'O usuário não possui foto de perfil ou a privacidade impede a visualização.'
                 };
                 setCache(cleanNumber, responseData);
+                addLog(cleanNumber, 'SEM FOTO', 'Privacidade ou sem foto');
                 return { status: 200, data: responseData };
             }
 
@@ -308,6 +419,7 @@ app.get('/api/avatar', async (req, res) => {
                 directImageUrl: `/api/avatar/view?number=${cleanNumber}`
             };
             setCache(cleanNumber, responseData);
+            addLog(cleanNumber, 'COM FOTO', 'Foto encontrada');
             return { status: 200, data: responseData };
         });
 
@@ -318,6 +430,7 @@ app.get('/api/avatar', async (req, res) => {
 
     } catch (error) {
         console.error('Erro ao consultar foto de perfil:', error);
+        addLog(cleanNumber, 'ERRO', error.message);
         return res.status(500).json({ 
             error: 'Falha ao processar a requisição.',
             details: error.message 
